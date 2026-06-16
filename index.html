@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>논리 탐정단: 빵 도둑을 찾아라!</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a252f;
+            font-family: 'Malgun Gothic', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            color: white;
+            overflow: hidden;
+        }
+
+        #game-wrapper {
+            position: relative;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 4px solid #34495e;
+            width: 800px;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-bar {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            background: linear-gradient(135deg, #2c1a11, #4a2e1b);
+            border: 3px solid #d35400;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 14px;
+            pointer-events: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+            gap: 10px;
+        }
+
+        .ui-section {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        #ui-room {
+            background: #e67e22;
+            padding: 4px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            color: white;
+            white-space: nowrap;
+        }
+
+        #ui-clues {
+            background: #fffdf0; 
+            color: #2c3e50;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            border-left: 5px solid #d35400;
+            font-size: 11px;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.2);
+            
+            flex-grow: 1;
+            width: 10px;
+            min-width: 100px;
+            white-space: normal !important;
+            word-break: break-all !important;
+            line-height: 1.5;
+        }
+
+        #dialogue-box {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 760px;
+            background: rgba(255, 254, 240, 0.98);
+            border: 5px solid #f39c12;
+            border-radius: 18px;
+            padding: 22px;
+            box-sizing: border-box;
+            color: #2c3e50;
+            display: none;
+            font-size: 16px;
+            line-height: 1.6;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.4);
+            z-index: 10;
+        }
+
+        #dialogue-title {
+            font-weight: bold;
+            color: #d35400;
+            margin-bottom: 8px;
+            font-size: 19px;
+            border-bottom: 2px dashed #f39c12;
+            padding-bottom: 6px;
+        }
+
+        #options-container {
+            margin-top: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .option-btn {
+            background: white;
+            border: 2px solid #bdc3c7;
+            padding: 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            text-align: left;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s;
+            color: #2c3e50;
+        }
+
+        .option-btn:hover {
+            background: #ffeaa7;
+            border-color: #f39c12;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+
+    <div style="margin-bottom: 12px; text-align: center;">
+        <h2 style="margin: 0 0 5px 0; color: #f1c40f;">🕵️‍♂️ 논리 탐정 동산</h2>
+        <p style="margin: 0; font-size: 13px; color: #bdc3c7;">방향키(WASD)로 이동 | 가구 앞에서 [Spacebar]를 눌러 조사하세요!</p>
+    </div>
+
+    <div id="game-wrapper">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        
+        <div id="ui-bar">
+            <div class="ui-section">
+                <span>📍 현재 맵:</span>
+                <span id="ui-room">Chapter 1의 방</span>
+            </div>
+            <div class="ui-section" style="flex-grow: 1; margin-left: 5px;">
+                <span style="white-space: nowrap;">🕵️‍♂️ 수첩:</span>
+                <span id="ui-clues">아직 기록된 단서가 없습니다.</span>
+            </div>
+        </div>
+
+        <div id="dialogue-box">
+            <div id="dialogue-title">시스템</div>
+            <div id="dialogue-text">내용이 여기에 표시됩니다.</div>
+            <div id="options-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let currentRoom = 1;
+        let collectedClues = []; 
+        let userChoices = [];    
+        let isDialogueOpen = false;
+
+        const player = { 
+            x: 400, 
+            y: 450, 
+            size: 20, 
+            speed: 5, 
+            direction: "down",
+            isMoving: false,
+            walkCycle: 0
+        };
+        
+        const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, W: false, A: false, S: false, D: false };
+
+        window.addEventListener("keydown", (e) => {
+            if (e.key in keys) keys[e.key] = true;
+            if (e.key === " " || e.code === "Space") {
+                e.preventDefault();
+                checkInteraction();
+            }
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.key in keys) keys[e.key] = false;
+        });
+
+        const roomsData = {
+            1: {
+                name: "Ch 1: 동아리방 냉장고 앞", bg: "#e5c398", floorType: "wood", wallColor: "#224d31",
+                object: { x: 400, y: 220, size: 35, color: "#f39c12", label: "냉장고와 용의자들" },
+                portal: { x: 760, y: 300, w: 40, h: 80, active: false },
+                story: "<strong>[Ch 1 명제의 정의]</strong> 내 크림빵이 사라졌다! 세 명 중 <strong>단 한 명만 진짜 명제</strong>를 말하고 있다. 누구의 진술을 수첩에 기록하겠는가?",
+                options: [
+                    { text: "A의 진술: '크림빵은 세상에서 제일 맛있는 음식이야.'", isCorrect: false, clue: "범인은 안경 착용자" },
+                    { text: "B의 진술: '너 지금 나 의심하냐? 당장 그 말 취소해.'", isCorrect: false, clue: "범인은 안경 착용자" },
+                    { text: "C의 진술: '2 더하기 3은 6이야.'", isCorrect: true, clue: "범인은 안경 안 씀" }
+                ]
+            },
+            2: {
+                name: "Ch 2: 비밀 대강당 복도", bg: "#d6eaf8", floorType: "tile", wallColor: "#1f3a60",
+                object: { x: 200, y: 240, size: 35, color: "#9b59b6", label: "바닥의 쪽지" },
+                portal: { x: 760, y: 300, w: 40, h: 80, active: false },
+                story: "<strong>[Ch 2 대우 명제]</strong> 복도 바닥에서 단서를 주웠다. 원본 명제는 <em>'빵을 훔친 자는 민트초코를 좋아한다'</em>이다. 이와 <strong>논리적으로 100% 동일한 대우 명제</strong>를 주장하는 단서를 기록하자.",
+                options: [
+                    { text: "D의 메모: '민트초코를 좋아하면 빵을 훔친 자다.'", isCorrect: false, clue: "범인은 민초 싫어함" },
+                    { text: "E의 메모: '빵을 훔치지 않은 자는 민트초코를 싫어한다.'", isCorrect: false, clue: "범인은 민초 싫어함" },
+                    { text: "F의 메모: '민트초코를 싫어하면 빵을 훔친 자가 아니다.'", isCorrect: true, clue: "범인은 민초 좋아함" }
+                ]
+            },
+            3: {
+                name: "Ch 3: 쓰레기통 옆 구석", bg: "#e2c5a0", floorType: "wood", wallColor: "#7e5109",
+                object: { x: 600, y: 240, size: 35, color: "#27ae60", label: "찢어진 공책 조각" },
+                portal: { x: 760, y: 300, w: 40, h: 80, active: false },
+                story: "<strong>[Ch 3 삼단논법]</strong> [쪽지1: 빵 도둑은 대식가이다], [쪽지2: 대식가는 탄산을 좋아한다] 이 두 개가 참일 때, <strong>삼단논법에 의해 확실하게 도출되는 결론</strong>을 고르자.",
+                options: [
+                    { text: "G의 해석: '대식가라면 무조건 빵 도둑이겠네!'", isCorrect: false, clue: "범인은 탄산 싫어함" },
+                    { text: "H의 해석: '탄산을 좋아하면 빵 도둑이라는 뜻이네.'", isCorrect: false, clue: "범인은 탄산 싫어함" },
+                    { text: "I의 해석: '빵 도둑은 결국 탄산을 좋아한다는 결론이 나오네!'", isCorrect: true, clue: "범인은 탄산 좋아함" }
+                ]
+            },
+            4: {
+                name: "Ch 4: 학생회실 앞 복도", bg: "#ebedf0", floorType: "tile", wallColor: "#2c3e50",
+                object: { x: 400, y: 240, size: 35, color: "#e74c3c", label: "게시판 소문" },
+                portal: { x: 760, y: 300, w: 40, h: 80, active: false },
+                story: "<strong>[Ch 4 드모르간의 법칙]</strong> 누군가 <em>'나는 동아리 회장이거나 혹은 휴학생이다'</em>라고 가짜 소문을 냈다. 이 거짓말을 <strong>완벽하게 깨부수고 반박하는 부정 명제</strong>를 채택하자.",
+                options: [
+                    { text: "J의 논리: '너는 회장이 아니거나 또는 휴학생이 아니야!'", isCorrect: false, clue: "범인은 임원/휴학생" },
+                    { text: "K의 논리: '너는 회장도 아니고 동시에 휴학생도 아니야!'", isCorrect: true, clue: "범인은 일반재학생" },
+                    { text: "L의 논리: '너는 회장이면 휴학생인 상태야!'", isCorrect: false, clue: "범인은 임원/휴학생" }
+                ]
+            },
+            5: {
+                name: "Ch 5: 최종 판결 재판소", bg: "#dfc19a", floorType: "wood", wallColor: "#641e16",
+                object: { x: 400, y: 200, size: 45, color: "#d35400", label: "최종 심판 가구 테이블" },
+                portal: { x: -100, y: 0, w: 0, h: 0, active: false },
+                story: "<strong>[Ch 5 조건의 포함관계]</strong> 캐비닛 자물쇠 힌트: <br><em>'범인의 학번 조건은 <strong>24학번을 포함하는 범위</strong>에 속하지만, <strong>올해 새내기(26학번)들의 범위는 결코 포함하지 않는다.</strong>'</em>",
+                options: [
+                    { text: "M 조건 입력: '범인은 24학번이거나 혹은 26학번(새내기) 중 하나다.'", isCorrect: false, clue: "범인은 26학번" },
+                    { text: "N 조건 입력: '범인은 오직 24학번에만 해당된다.'", isCorrect: true, clue: "범인은 24학번" },
+                    { text: "O 조건 입력: '범인은 23학번이거나 혹은 26학번 중 하나다.'", isCorrect: false, clue: "범인은 23학번/26학번" }
+                ]
+            }
+        };
+
+        const suspects = [
+            { name: "1. 수현", glass: "미착용", mint: "좋아함", soda: "싫어함", status: "동아리 회장", classOf: "23학번" },
+            { name: "2. 영희", glass: "착용", mint: "좋아함", soda: "좋아함", status: "휴학생", classOf: "26학번" },
+            { name: "3. 지훈", glass: "미착용", mint: "싫어함", soda: "좋아함", status: "재학생", classOf: "24학번" },
+            { name: "4. 정우", glass: "미착용", mint: "좋아함", soda: "좋아함", status: "재학생", classOf: "27학번" },
+            { name: "5. 민우", glass: "미착용", mint: "좋아함", soda: "좋아함", status: "재학생", classOf: "24학번" }
+        ];
+
+        function update() {
+            if (!isDialogueOpen) {
+                player.isMoving = false;
+
+                if (keys.w || keys.ArrowUp || keys.W) { player.y -= player.speed; player.direction = "up"; player.isMoving = true; }
+                else if (keys.s || keys.ArrowDown || keys.S) { player.y += player.speed; player.direction = "down"; player.isMoving = true; }
+                
+                if (keys.a || keys.ArrowLeft || keys.A) { player.x -= player.speed; player.direction = "left"; player.isMoving = true; }
+                else if (keys.d || keys.ArrowRight || keys.D) { player.x += player.speed; player.direction = "right"; player.isMoving = true; }
+
+                if (player.isMoving) {
+                    player.walkCycle += 0.2;
+                } else {
+                    player.walkCycle = 0;
+                }
+
+                // 이동 벽 충돌 영역 계산 (칠판/교탁 영역 침범 금지)
+                if (player.y < 145) player.y = 145;
+                if (player.x < 20) player.x = 20;
+                if (player.x > canvas.width - 20) player.x = canvas.width - 20;
+                if (player.y > canvas.height - 25) player.y = canvas.height - 25;
+
+                const room = roomsData[currentRoom];
+                if (room.portal.active && 
+                    player.x > room.portal.x - 30 &&
+                    player.y > room.portal.y && player.y < room.portal.y + room.portal.h) {
+                    
+                    currentRoom++;
+                    player.x = 60;
+                    player.y = 350;
+                    document.getElementById("ui-room").innerText = roomsData[currentRoom].name;
+                }
+            }
+        }
+
+        function drawHumanPlayer(ctx, p) {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+
+            let leftFootY = 0;
+            let rightFootY = 0;
+            if (p.isMoving) {
+                leftFootY = Math.sin(p.walkCycle) * 4;
+                rightFootY = -Math.sin(p.walkCycle) * 4;
+            }
+
+            const brownHat = "#7e5109";
+            const skinColor = "#fcdcb2";
+            const pantsColor = "#2471a3";
+            const shoesColor = "#2c3e50";
+            const shirtColor = "#ffffff";
+
+            ctx.fillStyle = shoesColor;
+            if (p.direction === "down" || p.direction === "up") {
+                ctx.fillRect(-7, 14 + leftFootY, 5, 5);
+                ctx.fillRect(2, 14 + rightFootY, 5, 5);
+            } else if (p.direction === "left") {
+                ctx.fillRect(-5 + leftFootY, 14, 5, 5);
+                ctx.fillRect(0 + rightFootY, 14, 5, 5);
+            } else if (p.direction === "right") {
+                ctx.fillRect(-2 + leftFootY, 14, 5, 5);
+                ctx.fillRect(3 + rightFootY, 14, 5, 5);
+            }
+
+            ctx.fillStyle = pantsColor;
+            ctx.fillRect(-8, 3, 16, 12);
+            ctx.fillStyle = shirtColor;
+            ctx.fillRect(-8, -4, 16, 7);
+
+            if (p.direction === "down") {
+                ctx.fillStyle = pantsColor;
+                ctx.fillRect(-6, -4, 2, 7);
+                ctx.fillRect(4, -4, 2, 7);
+            }
+
+            ctx.fillStyle = skinColor;
+            ctx.fillRect(-7, -13, 14, 10);
+
+            ctx.fillStyle = "#333333";
+            if (p.direction === "down") {
+                ctx.fillRect(-4, -10, 2, 3);
+                ctx.fillRect(2, -10, 2, 3);
+            } else if (p.direction === "left") {
+                ctx.fillRect(-5, -10, 2, 3);
+            } else if (p.direction === "right") {
+                ctx.fillRect(3, -10, 2, 3);
+            }
+
+            ctx.fillStyle = brownHat;
+            ctx.fillRect(-11, -15, 22, 3);
+            ctx.fillRect(-7, -21, 14, 7);
+
+            ctx.restore();
+        }
+
+        // 🏫 [신규] 대리석 타일 또는 교실 원목 바닥을 정밀하게 그리는 함수
+        function drawSchoolBackground(room) {
+            ctx.fillStyle = room.bg;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (room.floorType === "wood") {
+                // 나무 마룻바닥 줄무늬 묘사
+                ctx.strokeStyle = "rgba(110, 75, 30, 0.12)";
+                ctx.lineWidth = 1;
+                for (let y = 130; y < canvas.height; y += 18) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                    ctx.stroke();
+                }
+                // 세로 나무 이음새 토막 효과
+                for (let y = 130; y < canvas.height; y += 36) {
+                    let offset = (y % 72 === 0) ? 40 : 0;
+                    for (let x = offset; x < canvas.width; x += 120) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, y);
+                        ctx.lineTo(x, y + 18);
+                        ctx.stroke();
+                    }
+                }
+            } else if (room.floorType === "tile") {
+                // 대강당/복도 사각 타일 묘사
+                ctx.strokeStyle = "rgba(0, 0, 0, 0.05)";
+                ctx.lineWidth = 2;
+                const size = 50;
+                for (let x = 0; x < canvas.width; x += size) {
+                    ctx.beginPath(); ctx.moveTo(x, 130); ctx.lineTo(x, canvas.height); ctx.stroke();
+                }
+                for (let y = 130; y < canvas.height; y += size) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+                }
+            }
+
+            // 🪟 교실 좌측 은은한 창문 햇살 효과 연출
+            ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+            ctx.beginPath();
+            ctx.moveTo(0, 130);
+            ctx.lineTo(180, 130);
+            ctx.lineTo(380, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.fill();
+
+            // 📋 학교 교실 앞면 전면 벽 및 칠판 영역 렌더링
+            ctx.fillStyle = room.wallColor;
+            ctx.fillRect(0, 0, canvas.width, 130); 
+
+            // 게시판/칠판 나무 프레임 테두리
+            ctx.fillStyle = "#5d4037";
+            ctx.fillRect(80, 15, 640, 95);
+            ctx.fillStyle = "#1e3d2f"; // 칠판 내부 초록색
+            ctx.fillRect(86, 21, 628, 83);
+
+            // 칠판 분필 가루 낙서 디테일 효과
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(130, 50, 12, 0, Math.PI * 1.2);
+            ctx.stroke();
+            ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.font = "italic 11px Arial";
+            ctx.fillText("P ∴ Q", 200, 55);
+            ctx.fillText("De Morgan's", 580, 55);
+
+            // 분필 받침대 선
+            ctx.fillStyle = "#d7ccc8";
+            ctx.fillRect(80, 110, 640, 5);
+
+            // 교탁(가구) 배치
+            ctx.fillStyle = "#a1887f";
+            ctx.fillRect(360, 105, 80, 30);
+            ctx.fillStyle = "#6d4c41";
+            ctx.fillRect(360, 130, 80, 5);
+        }
+
+        function draw() {
+            const room = roomsData[currentRoom];
+            
+            // 전면 리뉴얼된 학교 배경 드로잉 호출
+            drawSchoolBackground(room);
+
+            // 상호작용 오브젝트 디자인 가공 (원색 사각형 대신 서랍장/박스 같은 테마 박스로 변경)
+            ctx.shadowColor = "rgba(0,0,0,0.3)";
+            ctx.shadowBlur = 6;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+            ctx.fillRect(room.object.x - room.object.size/2 + 4, room.object.y - room.object.size/2 + 4, room.object.size, room.object.size);
+            
+            ctx.fillStyle = room.object.color;
+            ctx.fillRect(room.object.x - room.object.size/2, room.object.y - room.object.size/2, room.object.size, room.object.size);
+            // 서랍장 가로줄 장식 디테일 추가
+            ctx.fillStyle = "rgba(0,0,0,0.2)";
+            ctx.fillRect(room.object.x - room.object.size/2, room.object.y, room.object.size, 4);
+
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 13px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(room.object.label, room.object.x, room.object.y - room.object.size + 10);
+
+            // 다음 교실로 향하는 학교 문(Portal) 디자인
+            if (room.portal.w > 0) {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+                ctx.fillRect(room.portal.x - 3, room.portal.y + 3, room.portal.w, room.portal.h); 
+                
+                // 학교 미닫이문 스타일 브라운 계열 컬러링
+                ctx.fillStyle = room.portal.active ? "#a04000" : "#7f8c8d";
+                ctx.fillRect(room.portal.x, room.portal.y, room.portal.w, room.portal.h);
+                
+                // 문 손잡이 및 문틀 창문 묘사
+                ctx.fillStyle = room.portal.active ? "#edbb99" : "#bdc3c7";
+                ctx.fillRect(room.portal.x + 8, room.portal.y + 10, 12, 25);
+                ctx.fillStyle = "#333";
+                ctx.fillRect(room.portal.x + 5, room.portal.y + 40, 4, 8);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 10px sans-serif";
+                ctx.fillText(room.portal.active ? "통과" : "잠김", room.portal.x + 20, room.portal.y + 70);
+            }
+
+            // 플레이어 발밑 그림자 효과
+            ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+            ctx.beginPath();
+            ctx.ellipse(player.x, player.y + 15, 13, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 탐정 인간형 캐릭터 렌더링
+            drawHumanPlayer(ctx, player);
+        }
+
+        function checkInteraction() {
+            if (isDialogueOpen) return;
+
+            const room = roomsData[currentRoom];
+            const dist = Math.hypot(player.x - room.object.x, player.y - room.object.y);
+
+            if (dist < 60) {
+                if (currentRoom === 5 && userChoices.filter(c => c !== undefined).length === 5) {
+                    openFinalVerdict();
+                } else {
+                    openQuizDialogue(room);
+                }
+            }
+        }
+
+        function openQuizDialogue(room) {
+            isDialogueOpen = true;
+            const box = document.getElementById("dialogue-box");
+            const title = document.getElementById("dialogue-title");
+            const text = document.getElementById("dialogue-text");
+            const optionsContainer = document.getElementById("options-container");
+
+            title.innerText = `🔍 ${room.object.label} 조사 중`;
+            text.innerHTML = room.story;
+            optionsContainer.innerHTML = "";
+
+            room.options.forEach((opt) => {
+                const btn = document.createElement("button");
+                btn.className = "option-btn";
+                btn.innerText = opt.text;
+                btn.onclick = () => handleBlindAnswer(opt);
+                optionsContainer.appendChild(btn);
+            });
+
+            box.style.display = "block";
+        }
+
+        function handleBlindAnswer(option) {
+            const text = document.getElementById("dialogue-text");
+            const optionsContainer = document.getElementById("options-container");
+            optionsContainer.innerHTML = "";
+
+            userChoices[currentRoom - 1] = option.isCorrect;
+            collectedClues[currentRoom - 1] = option.clue;
+            
+            document.getElementById("ui-clues").innerText = collectedClues.filter(Boolean).join(" | ");
+            roomsData[currentRoom].portal.active = true;
+
+            if (currentRoom < 5) {
+                text.innerHTML = `✍️ <strong>선택한 진술을 수첩에 받아적었습니다!</strong> 어떤 단서가 진짜 진실일지는 마지막에 판가름 납니다.<br><br><span style='color:#27ae60; font-weight:bold;'>[다음 교실 문(통과)이 개방되었습니다!]</span>`;
+            } else {
+                text.innerHTML = `✍️ <strong>마지막 5번째 단서까지 모두 기록했습니다.</strong><br><br>이제 다시 테이블 가구 앞에서 [Spacebar]를 누르면 용의자 목록을 심판하는 '최종 심판 법정'이 열립니다.`;
+            }
+
+            const closeBtn = document.createElement("button");
+            closeBtn.className = "option-btn";
+            closeBtn.style.backgroundColor = "#2c3e50";
+            closeBtn.style.color = "white";
+            closeBtn.style.textAlign = "center";
+            closeBtn.innerText = "창 닫기 (Space)";
+            closeBtn.onclick = closeDialogue;
+            optionsContainer.appendChild(closeBtn);
+        }
+
+        function openFinalVerdict() {
+            isDialogueOpen = true;
+            const box = document.getElementById("dialogue-box");
+            const title = document.getElementById("dialogue-title");
+            const text = document.getElementById("dialogue-text");
+            const optionsContainer = document.getElementById("options-container");
+
+            title.innerText = "⚖️ 최종 명제 심판 법정";
+            text.innerHTML = "<strong>[마지막 단계: 크림빵 도둑 선고]</strong><br>상단 가죽 수첩에 수집된 단서 목록을 바탕으로 모순이 없는 용의자를 고르세요. 가짜 소문을 적었다면 소거법이 완전히 꼬입니다.";
+            optionsContainer.innerHTML = "";
+
+            document.getElementById("ui-clues").innerText = collectedClues.filter(Boolean).join(" | ");
+
+            let tableHtml = `<table style="width:100%; border-collapse:collapse; margin-top:10px; background:white; font-size:12px; color:#333; text-align:center; border:2px solid #34495e;">
+                <thead style="background:#34495e; color:white;">
+                    <tr>
+                        <th style="padding:8px;">이름</th><th style="padding:8px;">안경</th><th style="padding:8px;">민초</th><th style="padding:8px;">탄산</th><th style="padding:8px;">상태</th><th style="padding:8px;">학번</th><th style="padding:8px;">판결</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            suspects.forEach((sus) => {
+                tableHtml += `<tr style="border-bottom:1px solid #ddd;">
+                    <td style="padding:8px; font-weight:bold; background:#fcfcfc;">${sus.name}</td>
+                    <td style="padding:8px;">${sus.glass}</td>
+                    <td style="padding:8px;">${sus.mint}</td>
+                    <td style="padding:8px;">${sus.soda}</td>
+                    <td style="padding:8px;">${sus.status}</td>
+                    <td style="padding:8px; font-weight:bold; color:#c0392b;">${sus.classOf}</td>
+                    <td style="padding:8px;"><button style="background:#e74c3c; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;" onclick="evaluateFinalGame('${sus.name}')">지목</button></td>
+                </tr>`;
+            });
+            tableHtml += `</tbody></table>`;
+            
+            optionsContainer.innerHTML = tableHtml;
+            box.style.display = "block";
+        }
+
+        function evaluateFinalGame(chosenName) {
+            const optionsContainer = document.getElementById("options-container");
+            const text = document.getElementById("dialogue-text");
+            optionsContainer.innerHTML = "";
+
+            let wrongRooms = [];
+            for(let i=0; i<5; i++) {
+                if (userChoices[i] === false) {
+                    wrongRooms.push(i + 1);
+                }
+            }
+
+            const isAllCorrect = wrongRooms.length === 0;
+
+            if (chosenName.includes("민우") && isAllCorrect) {
+                text.innerHTML = `<h3 style="color:#27ae60; margin:0 0 10px 0;">🎉 사건 완벽 해결! 범인은 민우였습니다!</h3>
+                <p>단 한 번의 함정 명제에도 빠지지 않고 진실 단서만을 수집하여 소거법으로 범인을 찾아냈습니다. 훌륭한 논리력입니다 탐정님!</p>`;
+            } else {
+                let failMessage = `<h3 style="color:#c0392b; margin:0 0 10px 0;">☠️ 추리 실패 (수첩 모순 감지)</h3>`;
+                
+                if (!isAllCorrect) {
+                    failMessage += `<p>지목한 용의자는 범인이 아닙니다. 수첩을 대조해 본 결과, <strong style="color:#e74c3c;">Chapter ${wrongRooms.join(", ")}</strong>번 방에서 가짜 명제 소문을 받아적은 오류가 확인되었습니다.</p>
+                    <p>단서 배치가 꼬여버린 첫 관문인 <strong>Chapter ${wrongRooms[0]}</strong> 방으로 워프하여 재조사하십시오.</p>
+                    <button style="padding:10px 15px; background:#e67e22; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;" onclick="goToWrongRoom(${wrongRooms[0]})">Ch ${wrongRooms[0]} 방으로 재도전 워프</button>`;
+                } else {
+                    failMessage += `<p>단서는 완벽하게 다 잘 모았습니다! 하지만 용의자 테이블 매칭 과정에서 단순 매칭 착오가 있었던 것 같습니다. 다시 대조해 보세요.</p>
+                    <button style="padding:10px 15px; background:#2c3e50; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;" onclick="openFinalVerdict()">다시 표 대조하기</button>`;
+                }
+                
+                text.innerHTML = failMessage;
+            }
+        }
+
+        function goToWrongRoom(roomNumber) {
+            currentRoom = roomNumber;
+            
+            userChoices.splice(roomNumber - 1); 
+            collectedClues.splice(roomNumber - 1);
+            
+            roomsData[roomNumber].portal.active = false;
+            
+            document.getElementById("ui-room").innerText = roomsData[roomNumber].name;
+            document.getElementById("ui-clues").innerText = collectedClues.filter(Boolean).join(" | ") || "아직 기록된 단서가 없습니다.";
+            
+            player.x = 400;
+            player.y = 450;
+            closeDialogue();
+        }
+
+        function closeDialogue() {
+            document.getElementById("dialogue-box").style.display = "none";
+            isDialogueOpen = false;
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
